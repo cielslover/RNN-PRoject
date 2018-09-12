@@ -15,9 +15,11 @@ TRAINING_STEPS = 100000
 BATCH_SIZE = 100
 PRINT_STEPS = TRAINING_STEPS / 100
 
-dateparse = lambda dates: pd.datetime.strptime(dates, '%d/%m/%Y')
-rawdata = pd.read_csv("./input/ElectricityPrice/RealMarketPriceDataPT.csv", 
-                   parse_dates={'timeline': ['date', '(UTC)']}, 
+
+
+dateparse = lambda dates: pd.datetime.strptime(Dates, '%d/%m/%Y')
+rawdata = pd.read_csv("RNN-PRoject/US_KRW.csv", 
+                   parse_dates={'timeline': ['Dates'}, 
                    index_col='timeline', date_parser=dateparse)
 
 
