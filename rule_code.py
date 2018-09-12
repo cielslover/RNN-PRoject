@@ -1,50 +1,51 @@
-# RULE DESCRIPTION
-# This example rule checks that EC2 instances are of the desired instance type
-# The desired instance type is specified in the rule parameters.
-#
-# RULE DETAILS
-# Trigger Type (Change Triggered or Periodic: Change Triggered)
+import numpy as np
+import pandas as pd
+from matplotlib import pyplot as plt
 
-# Required Parameters: desiredInstanceType - t2.micro
-# Rule parameters are defined in template.yml
-
-import json
-
-# This rule needs to be uploaded with rule_util.py. 
-# It is automatically done when using the RDK.
-from rule_util import rule_handler
-
-# Add Scope of Changes e.g. ["AWS::EC2::Instance"] or 
-# ["AWS::EC2::Instance","AWS::EC2::InternetGateway"]
-APPLICABLE_RESOURCES = ["AWS::EC2::Instance"]
-
-# This is where it's determined whether the resource is compliant or not.
-# In this example, we simply decide that the resource is compliant if it 
-# is an instance and its type matches the type specified as the desired type.
-# If the resource is not an instance, then we deem this resource to be not
-# applicable. (If the scope of the rule is specified to include only
-# instances, this rule would never have been invoked.)
+from tensorflow.contrib import learn
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from lstm_predictor import generate_data, load_csvdata, lstm_model
 
 
-def evaluate_compliance(configuration_item, rule_parameters):
-    if configuration_item['resourceType'] not in APPLICABLE_RESOURCES:
-        return 'NOT_APPLICABLE'
-    elif (rule_parameters['desiredInstanceType'] 
-            != configuration_item['configuration']['instanceType']):
-        return 'NON_COMPLIANT'
-    else:
-        return 'COMPLIANT'
+LOG_DIR = './ops_logs'
+TIMESTEPS = 10
+RNN_LAYERS = [{'steps': TIMESTEPS}]
+DENSE_LAYERS = [10, 10]
+TRAINING_STEPS = 100000
+BATCH_SIZE = 100
+PRINT_STEPS = TRAINING_STEPS / 100
 
-# USE AS IS
-# This is the handler that's invoked by Lambda
-@rule_handler
+dateparse = lambda dates: pd.datetime.strptime(dates, '%d/%m/%Y')
+rawdata = pd.read_csv("./input/ElectricityPrice/RealMarketPriceDataPT.csv", 
+                   parse_dates={'timeline': ['date', '(UTC)']}, 
+                   index_col='timeline', date_parser=dateparse)
 
 
-def lambda_handler(event, context):
-    print(event)
-    invoking_event = json.loads(event['invokingEvent'])
-    configuration_item = invoking_event['configurationItem']
-    rule_parameters = {}
-    if 'ruleParameters' in event:
-        rule_parameters = json.loads(event['ruleParameters'])
-    return evaluate_compliance(configuration_item, rule_parameters)
+X, y = load_csvdata(rawdata, TIMESTEPS, seperate=False)
+
+
+regressor = learn.TensorFlowEstimator(model_fn=lstm_model(TIMESTEPS, RNN_LAYERS, DENSE_LAYERS), 
+                                      n_classes=0,
+                                      verbose=1,  
+                                      steps=TRAINING_STEPS, 
+                                      optimizer='Adagrad',
+                                      learning_rate=0.03, 
+                                      batch_size=BATCH_SIZE)
+
+
+
+
+validation_monitor = learn.monitors.ValidationMonitor(X['val'], y['val'],
+                                                      every_n_steps=PRINT_STEPS,
+                                                      early_stopping_rounds=1000)
+
+regressor.fit(X['train'], y['train'], monitors=[validation_monitor], logdir=LOG_DIR)
+
+
+predicted = regressor.predict(X['test'])
+mse = mean_absolute_error(y['test'], predicted)
+print ("Error: %f" % mse)
+
+plot_predicted, = plt.plot(predicted, label='predicted')
+plot_test, = plt.plot(y['test'], label='test')
+plt.legend(handles=[plot_predicted, plot_test])
